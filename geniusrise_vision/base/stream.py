@@ -17,10 +17,9 @@ from typing import Any, Dict, Optional, Tuple, List, Union
 import os
 import torch
 import transformers
-from geniusrise import BatchInput, BatchOutput, Bolt, State
+from geniusrise import StreamingInput, StreamingOutput, Bolt, State
 from geniusrise.logging import setup_logger
 from transformers import AutoModel, AutoProcessor
-from geniusrise_vision.base.communication import send_email
 from uform.gen_model import VLMForCausalLM, VLMProcessor
 from optimum.bettertransformer import BetterTransformer
 import llama_cpp
@@ -28,7 +27,7 @@ from llama_cpp import Llama as LlamaCPP
 from transformers.tokenization_utils_base import PreTrainedTokenizerBase
 
 
-class VisionBulk(Bolt):
+class VisionStream(Bolt):
     """
     A class representing the VisionBulk operations that inherits from Bolt.
 
@@ -50,8 +49,8 @@ class VisionBulk(Bolt):
 
     def __init__(
         self,
-        input: BatchInput,
-        output: BatchOutput,
+        input: StreamingInput,
+        output: StreamingOutput,
         state: State,
     ):
         """
@@ -111,6 +110,7 @@ class VisionBulk(Bolt):
         self,
         model_name: str,
         processor_name: str,
+        model_location: Optional[str] = None,
         model_revision: Optional[str] = None,
         processor_revision: Optional[str] = None,
         model_class: str = "AutoModel",
@@ -171,9 +171,7 @@ class VisionBulk(Bolt):
 
         # Load the model and processor
         if model_name == "local":
-            processor = processorClass.from_pretrained(
-                os.path.join(self.input.get(), "/model"), torch_dtype=torch_dtype
-            )
+            processor = processorClass.from_pretrained(model_location, torch_dtype=torch_dtype)
         else:
             processor = processorClass.from_pretrained(
                 processor_name, revision=processor_revision, torch_dtype=torch_dtype
@@ -187,7 +185,7 @@ class VisionBulk(Bolt):
         if quantization == 8:
             if model_name == "local":
                 model = ModelClass.from_pretrained(
-                    os.path.join(self.input.get(), "/model"),
+                    model_location,
                     torchscript=torchscript,
                     max_memory=max_memory,
                     device_map=device_map,
@@ -207,7 +205,7 @@ class VisionBulk(Bolt):
         elif quantization == 4:
             if model_name == "local":
                 model = ModelClass.from_pretrained(
-                    os.path.join(self.input.get(), "/model"),
+                    model_location,
                     torchscript=torchscript,
                     max_memory=max_memory,
                     device_map=device_map,
@@ -227,7 +225,7 @@ class VisionBulk(Bolt):
         else:
             if model_name == "local":
                 model = ModelClass.from_pretrained(
-                    os.path.join(self.input.get(), "/model"),
+                    model_location,
                     torch_dtype=torch_dtype,
                     torchscript=torchscript,
                     max_memory=max_memory,
@@ -390,8 +388,3 @@ class VisionBulk(Bolt):
         self.log.info("LLaMA model loaded successfully.")
 
         return llama_model, tokenizer
-
-    def done(self):
-        if self.notification_email:
-            self.output.flush()
-            send_email(recipient=self.notification_email, bucket_name=self.output.bucket, prefix=self.output.s3_folder)
